@@ -1,14 +1,25 @@
 import Sidebar from './Sidebar';
-import { Send, Image as ImageIcon, Sparkles, Mic, MessageSquare, Globe, X, Loader2, Check, CheckCheck } from 'lucide-react';
+import ChatHeader from './chat/ChatHeader';
+import ChatFeed from './chat/ChatFeed';
+import AISuggestions from './chat/AISuggestions';
+import ChatInput from './chat/ChatInput';
+import RightSidebar from './chat/RightSidebar';
+import MediaModal from './chat/MediaModal';
+import ProfileModal from './chat/ProfileModal';
+import SettingsModal from './chat/SettingsModal';
+import { Send, Image as ImageIcon, Sparkles, Mic, MessageSquare, Globe, X, Loader2, Check, CheckCheck, Phone, Video, Info, FileText } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-export default function ChatLayout({ socket, user, setAuth }) {
+export default function ChatLayout({ socket, user: initialUser, setAuth }) {
+  const [user, setUser] = useState(initialUser);
+  const currentUserId = user?._id || user?.id;
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [chatId, setChatId] = useState(null);
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [tone, setTone] = useState('Professional');
@@ -16,12 +27,15 @@ export default function ChatLayout({ socket, user, setAuth }) {
   const [isTranslating, setIsTranslating] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState('English');
   const [isTranslatingLanguage, setIsTranslatingLanguage] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [expandedImage, setExpandedImage] = useState(null);
+  const [expandedMedia, setExpandedMedia] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const aiDebounceRef = useRef(null);
@@ -33,27 +47,55 @@ export default function ChatLayout({ socket, user, setAuth }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, suggestions, isSuggesting]);
 
+  // Handle Theme Application
+  useEffect(() => {
+    if (user.settings?.accentColor) {
+      const themes = {
+        'cyan-purple': { bg: '/ChattyMind-Background.jpg', p: '#00cfff', s: '#a855f7' },
+        'gold-sunset': { bg: 'https://images.unsplash.com/photo-1472120482482-d43ba79ff5b0?q=80&w=2070&auto=format&fit=crop', p: '#facc15', s: '#ea580c' },
+        'emerald-midnight': { bg: 'https://images.unsplash.com/photo-1534841090574-cbe293998897?q=80&w=2070&auto=format&fit=crop', p: '#34d399', s: '#134e4a' },
+        'rose-quartz': { bg: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2070&auto=format&fit=crop', p: '#fb7185', s: '#4f46e5' }
+      };
+      
+      const config = themes[user.settings.accentColor] || themes['cyan-purple'];
+      
+      // Update CSS variables on the root element
+      const root = document.documentElement;
+      root.style.setProperty('--primary', config.p);
+      root.style.setProperty('--secondary', config.s);
+      root.style.setProperty('--bg-image', `url(${config.bg})`);
+    }
+  }, [user.settings?.accentColor]);
+
   useEffect(() => {
     const fetchUnreadCounts = async () => {
       try {
-        const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/unread-counts/${user.id}`);
+        const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/unread-counts/${currentUserId}`);
         setUnreadCounts(data);
       } catch (error) {
         console.error("Error fetching unread counts", error);
       }
     };
-    if (user?.id) fetchUnreadCounts();
-  }, [user.id]);
+    if (currentUserId) fetchUnreadCounts();
+  }, [currentUserId]);
 
   useEffect(() => {
     if (selectedUser) {
       const fetchChat = async () => {
         try {
-          const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/${user.id}/${selectedUser._id}`);
+          const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/${currentUserId}/${selectedUser._id}`);
           setChatId(data.chat._id);
           setMessages(data.messages);
           socket.emit('join_chat', data.chat._id);
-          
+
+          // Mark as delivered immediately upon opening (replaces single check with double)
+          axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-delivered`, {
+            chatId: data.chat._id,
+            receiverId: currentUserId
+          }).then(() => {
+            socket.emit('messages_delivered', { chatId: data.chat._id });
+          });
+
           // Reset unread count for this user
           setUnreadCounts(prev => ({ ...prev, [selectedUser._id]: 0 }));
         } catch (error) {
@@ -71,14 +113,16 @@ export default function ChatLayout({ socket, user, setAuth }) {
           if (prev.find(m => m._id === newMessage._id)) return prev;
           return [...prev, newMessage];
         });
-        
+
         // If we receive a message and the chat is open, mark it seen
-        axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
-          chatId,
-          receiverId: user.id
-        }).then(() => {
-          socket.emit('messages_seen', { chatId });
-        });
+        if (user.settings?.readReceipts !== false) {
+          axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
+            chatId,
+            receiverId: currentUserId
+          }).then(() => {
+            socket.emit('messages_seen', { chatId, receiverId: selectedUser._id });
+          });
+        }
       } else {
         // Increment unread count for background chat
         setUnreadCounts(prev => ({
@@ -89,7 +133,7 @@ export default function ChatLayout({ socket, user, setAuth }) {
         // Mark it delivered
         axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-delivered`, {
           chatId: newMessage.chatId,
-          receiverId: user.id
+          receiverId: currentUserId
         }).then(() => {
           socket.emit('messages_delivered', { chatId: newMessage.chatId });
         });
@@ -106,8 +150,20 @@ export default function ChatLayout({ socket, user, setAuth }) {
 
     const handleStatusUpdate = ({ chatId: incomingChatId, status }) => {
       if (incomingChatId === chatId) {
-        setMessages((prev) => prev.map(m => ({ ...m, status: m.senderId === user.id ? status : m.status })));
+        setMessages((prev) => prev.map(m => ({ ...m, status: m.senderId === currentUserId ? status : m.status })));
       }
+    };
+
+    const handleOnlineUsers = (users) => {
+      setOnlineUsers(users);
+    };
+
+    const handleMessageDeletedEveryone = ({ messageId }) => {
+      setMessages((prev) => prev.map(m => 
+        m._id === messageId 
+          ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' } 
+          : m
+      ));
     };
 
     socket.on('receive_message', receiveMessageHandler);
@@ -115,12 +171,17 @@ export default function ChatLayout({ socket, user, setAuth }) {
     socket.on('typing', handleTyping);
     socket.on('stop_typing', handleStopTyping);
     socket.on('message_status_update', handleStatusUpdate);
+    socket.on('get_online_users', handleOnlineUsers);
+    socket.on('message_deleted_everyone', handleMessageDeletedEveryone);
+
+    // Request initial online users in case the broadcast was missed
+    socket.emit('request_online_users');
 
     // Mark existing unread messages as seen when opening the chat
-    if (chatId && selectedUser) {
+    if (chatId && selectedUser && user.settings?.readReceipts !== false) {
       axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
         chatId,
-        receiverId: user.id
+        receiverId: currentUserId
       }).then(() => {
         socket.emit('messages_seen', { chatId, receiverId: selectedUser._id });
       });
@@ -132,8 +193,10 @@ export default function ChatLayout({ socket, user, setAuth }) {
       socket.off('typing', handleTyping);
       socket.off('stop_typing', handleStopTyping);
       socket.off('message_status_update', handleStatusUpdate);
+      socket.off('get_online_users', handleOnlineUsers);
+      socket.off('message_deleted_everyone', handleMessageDeletedEveryone);
     };
-  }, [socket, chatId, selectedUser, user.id]);
+  }, [socket, chatId, selectedUser, currentUserId]);
 
   const fetchSuggestions = async (draftText) => {
     try {
@@ -230,14 +293,10 @@ export default function ChatLayout({ socket, user, setAuth }) {
     }
   };
 
-  const handleImageChange = (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.type.startsWith('image/')) {
-        setSelectedImage(file);
-      } else {
-        alert('Please select an image file');
-      }
+      setSelectedFile(file);
     }
   };
 
@@ -251,7 +310,7 @@ export default function ChatLayout({ socket, user, setAuth }) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = false;
-      
+
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         setText((prev) => prev + (prev.trim() ? ' ' : '') + transcript);
@@ -285,7 +344,7 @@ export default function ChatLayout({ socket, user, setAuth }) {
       });
       if (data.text) {
         setText(data.text);
-        setSuggestions([]); 
+        setSuggestions([]);
       }
     } catch (error) {
       console.error("Refinement failed", error);
@@ -296,352 +355,193 @@ export default function ChatLayout({ socket, user, setAuth }) {
 
   const sendMessage = async (e) => {
     if (e) e.preventDefault();
-    if ((!text.trim() && !selectedImage) || !chatId) return;
+    if ((!text.trim() && !selectedFile) || !chatId) return;
 
     let mediaUrl = '';
+    let mediaType = '';
 
-    if (selectedImage) {
+    if (selectedFile) {
       setIsUploading(true);
       const formData = new FormData();
-      formData.append('media', selectedImage);
+      formData.append('media', selectedFile);
+      mediaType = selectedFile.type;
       try {
         const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/upload`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         mediaUrl = data.mediaUrl;
       } catch (error) {
-        console.error("Image upload failed", error);
-        alert('Failed to upload image. Please try again.');
+        console.error("File upload failed", error);
+        alert('Failed to upload file. Please try again.');
         setIsUploading(false);
-        return; // Don't send message if image upload fails
+        return;
       }
       setIsUploading(false);
     }
 
-    const draftMessage = {
+    const tempId = Date.now().toString();
+    const messageData = {
+      _id: tempId,
       chatId,
-      senderId: user.id,
+      senderId: currentUserId,
       receiverId: selectedUser._id,
-      text,
+      text: text.trim(),
       mediaUrl,
+      mediaType,
       status: 'sent',
       createdAt: new Date().toISOString()
     };
 
     // Optimistic Update
-    setMessages((prev) => [...prev, draftMessage]);
+    setMessages((prev) => [...prev, messageData]);
     setText('');
-    setSelectedImage(null);
+    setSelectedFile(null);
     setSuggestions([]);
     setIsSuggesting(false);
     lastFetchedTextRef.current = '';
 
     try {
-      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/messages/send`, draftMessage);
-      // Now broadcast via socket with the real DB object
+      // Create a copy without the _id for the backend
+      const { _id, ...backendData } = messageData;
+      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/messages/send`, backendData);
+      
+      // Replace the optimistic message with the real one from the server
+      setMessages((prev) => prev.map(m => m._id === tempId ? data : m));
+      
       socket.emit('send_message', data);
     } catch (error) {
       console.error("Error saving message", error);
     }
   };
 
+  const handleDeleteMessage = async (messageId, type) => {
+    try {
+      if (type === 'for_me') {
+        setMessages((prev) => prev.filter(m => m._id !== messageId));
+      } else if (type === 'for_everyone') {
+        setMessages((prev) => prev.map(m => 
+          m._id === messageId 
+            ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' } 
+            : m
+        ));
+      }
+
+      await axios.delete(`${import.meta.env.VITE_BACKEND_URL}/api/messages/${messageId}`, {
+        data: { type, userId: currentUserId }
+      });
+
+      if (type === 'for_everyone') {
+        socket.emit('delete_message_everyone', { chatId, messageId });
+      }
+    } catch (error) {
+      console.error("Error deleting message", error);
+    }
+  };
+
+  const handleUpdateProfile = (updatedUser) => {
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+  };
+
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-transparent">
       <Sidebar 
         setAuth={setAuth} 
         user={user} 
         onSelectUser={setSelectedUser} 
         unreadCounts={unreadCounts} 
+        onlineUsers={onlineUsers}
+        onSettings={() => setIsSettingsModalOpen(true)}
       />
 
-      <div className="flex-1 flex flex-col relative">
-        <header className="h-16 bg-white border-b border-gray-100 flex items-center px-6">
-          <div className="flex flex-col">
-            <h2 className="text-[17px] font-bold text-gray-800 leading-tight">
-              {selectedUser ? selectedUser.username : 'Select a chat'}
-            </h2>
-            {isOtherUserTyping && (
-              <span className="text-[13px] font-medium text-green-500 animate-pulse transition-opacity">typing...</span>
-            )}
-          </div>
-        </header>
+      <div className="flex-1 flex relative overflow-hidden">
+        {/* Main Chat Column */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <ChatHeader
+            selectedUser={selectedUser}
+            isOtherUserTyping={isOtherUserTyping}
+            onlineUsers={onlineUsers}
+            isRightSidebarOpen={isRightSidebarOpen}
+            setIsRightSidebarOpen={setIsRightSidebarOpen}
+          />
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {!selectedUser ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <MessageSquare className="w-12 h-12 mb-4 text-gray-300" />
-              <p>Ready to start chatting. AI Suggestions will appear as you type.</p>
-            </div>
-          ) : (
-            <>
-              {messages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.senderId === user.id ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] md:max-w-[65%] rounded-2xl px-4 py-2.5 shadow-sm text-[15px] leading-relaxed ${msg.senderId === user.id ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'}`}>
-                    {msg.mediaUrl && (
-                      <div className="mb-2">
-                        <img 
-                          src={msg.mediaUrl} 
-                          alt="Sent media" 
-                          onClick={() => setExpandedImage(msg.mediaUrl)}
-                          className="max-h-64 rounded-lg object-contain bg-black/5 cursor-pointer hover:opacity-90 transition-opacity" 
-                        />
-                      </div>
-                    )}
-                    {msg.text && <p>{msg.text}</p>}
-                    
-                    <div className="flex items-center justify-end gap-1 mt-1 -mr-1">
-                      <span className={`text-[10px] ${msg.senderId === user.id ? 'text-brand-100' : 'text-gray-400'}`}>
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {msg.senderId === user.id && (
-                        <span className="flex">
-                          {msg.status === 'sent' && <Check className="w-3.5 h-3.5 text-white/50" />}
-                          {msg.status === 'delivered' && <CheckCheck className="w-3.5 h-3.5 text-white/70" />}
-                          {msg.status === 'seen' && <CheckCheck className="w-3.5 h-3.5 text-slate-900" />}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {/* {isOtherUserTyping moved to header for WhatsApp look} */}
-              <div ref={messagesEndRef} />
-            </>
-          )}
+          <ChatFeed
+            selectedUser={selectedUser}
+            messages={messages}
+            currentUserId={currentUserId}
+            setExpandedMedia={setExpandedMedia}
+            messagesEndRef={messagesEndRef}
+            handleDeleteMessage={handleDeleteMessage}
+          />
+
+          <AISuggestions
+            selectedUser={selectedUser}
+            text={text}
+            isSuggesting={isSuggesting}
+            suggestions={suggestions}
+            tone={tone}
+            setTone={setTone}
+            setIsSuggesting={setIsSuggesting}
+            fetchSuggestions={fetchSuggestions}
+            setText={setText}
+            setSuggestions={setSuggestions}
+            lastFetchedTextRef={lastFetchedTextRef}
+          />
+
+          <ChatInput
+            user={user}
+            selectedUser={selectedUser}
+            selectedFile={selectedFile}
+            setSelectedFile={setSelectedFile}
+            isUploading={isUploading}
+            text={text}
+            setText={setText}
+            handleTextChange={handleTextChange}
+            isRefining={isRefining}
+            handleRefine={handleRefine}
+            targetScript={targetScript}
+            setTargetScript={setTargetScript}
+            isTranslating={isTranslating}
+            handleTranslate={handleTranslate}
+            targetLanguage={targetLanguage}
+            setTargetLanguage={setTargetLanguage}
+            isTranslatingLanguage={isTranslatingLanguage}
+            handleTranslateLanguage={handleTranslateLanguage}
+            fileInputRef={fileInputRef}
+            handleFileChange={handleFileChange}
+            isRecording={isRecording}
+            toggleRecording={toggleRecording}
+            sendMessage={sendMessage}
+          />
         </div>
 
-        {/* Vertical AI Suggestions Area */}
-        {selectedUser && (text.trim().length >= 3) && (isSuggesting || suggestions.length > 0) && (
-          <div className="px-6 py-2 shrink-0 relative z-10 w-full">
-            <div className="bg-white border border-brand-200 rounded-2xl p-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] w-full">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-xs font-bold text-brand-600 tracking-wider flex items-center gap-1.5 uppercase">
-                  <Sparkles className="w-4 h-4 text-brand-500" />
-                  Smart Suggestions
-                </h3>
-                {/* Tone Selector */}
-                <select
-                  value={tone}
-                  onChange={(e) => {
-                    setTone(e.target.value);
-                    if (text.trim()) {
-                      setIsSuggesting(true);
-                      lastFetchedTextRef.current = text.trim();
-                      fetchSuggestions(text.trim());
-                    }
-                  }}
-                  className="text-xs border border-brand-200 rounded-md p-1.5 bg-brand-50 outline-none cursor-pointer text-brand-700 font-semibold hover:border-brand-400 transition-colors"
-                >
-                  <option value="Casual">Casual</option>
-                  <option value="Professional">Professional</option>
-                  <option value="Friendly">Friendly</option>
-                  <option value="Expressive">Expressive</option>
-                </select>
-              </div>
-
-              {isSuggesting && suggestions.length === 0 ? (
-                <div className="flex items-center gap-2 p-3 text-brand-500 text-sm font-medium bg-brand-50/50 rounded-lg">
-                  <span className="w-2 h-2 bg-brand-400 rounded-full animate-bounce" style={{ animationDelay: '75ms' }}></span>
-                  <span className="w-2 h-2 bg-brand-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                  <span className="w-2 h-2 bg-brand-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                  Refining text using AI...
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {suggestions.map((sug, i) => (
-                    <button
-                      key={i}
-                      onClick={() => { setText(sug); setSuggestions([]); setIsSuggesting(false); }}
-                      className="w-full text-left bg-white text-sm text-gray-800 p-3 rounded-xl border border-gray-200 shadow-sm hover:border-brand-400 hover:bg-brand-50 hover:text-brand-800 transition-all font-medium"
-                    >
-                      {sug}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Message Input Area */}
-        <div className="bg-white border-t border-gray-100 p-3 px-6 flex flex-col gap-3 relative z-20 shrink-0 shadow-[0_-5px_20px_-15px_rgba(0,0,0,0.1)]">
-
-          {/* Image Preview */}
-          {selectedImage && (
-            <div className="flex items-center gap-2 mb-1 p-2 bg-gray-50 rounded-xl border border-gray-200 w-max self-start">
-              <div className="relative">
-                <img 
-                  src={URL.createObjectURL(selectedImage)} 
-                  alt="preview" 
-                  className="h-16 w-16 object-cover rounded-lg border border-gray-300 shadow-sm"
-                />
-                <button 
-                  onClick={() => setSelectedImage(null)}
-                  className="absolute -top-2 -right-2 bg-gray-800 text-white rounded-full p-1 hover:bg-red-500 shadow-md transition-all hover:scale-105"
-                  title="Remove image"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="flex flex-col max-w-[150px] pr-2">
-                 <span className="text-xs text-gray-700 font-semibold truncate">{selectedImage.name}</span>
-                 <span className="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Ready</span>
-              </div>
-            </div>
-          )}
-
-          {/* AI Tools & Actions Row */}
-          <div className="flex items-center w-full gap-3 overflow-x-auto pb-1 shrink-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            
-            {/* Quick Actions (Shorter, Polite, Clarity) */}
-            <div className="flex items-center gap-2 shrink-0 border-r border-gray-200 pr-3">
-              {['Shorter', 'Polite', 'Clarity'].map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  disabled={!selectedUser || !text.trim() || isRefining}
-                  onClick={() => handleRefine(action)}
-                  className="text-[11px] bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold px-3 py-1.5 rounded-full border border-purple-100 transition-all disabled:opacity-50 flex items-center gap-1.5 active:scale-95 whitespace-nowrap"
-                >
-                  {isRefining ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3 h-3" />}
-                  {action}
-                </button>
-              ))}
-            </div>
-
-            {/* Script & Language Conversion Bars */}
-            <div className="flex items-center gap-3 shrink-0">
-
-              {/* Convert Script */}
-              <div className="flex items-center gap-1.5 bg-brand-50 px-2 py-1.5 rounded-full border border-brand-100">
-                <Globe className="w-3.5 h-3.5 text-brand-400 ml-1" />
-                <select
-                  value={targetScript}
-                  onChange={(e) => setTargetScript(e.target.value)}
-                  className="text-xs bg-transparent outline-none cursor-pointer text-brand-700 font-semibold disabled:opacity-50"
-                  disabled={!selectedUser}
-                >
-                  <option value="English Letters">English Letters</option>
-                  <option value="Hindi Letters">Hindi Letters</option>
-                  <option value="Marathi Letters">Marathi Letters</option>
-                  <option value="Gujarati Letters">Gujarati Letters</option>
-                </select>
-                <button
-                  onClick={handleTranslate}
-                  type="button"
-                  disabled={!selectedUser || !text.trim() || isTranslating}
-                  className="text-[11px] bg-brand-600 hover:bg-brand-700 text-white font-bold px-2.5 py-1 rounded-full shadow-sm transition-all disabled:opacity-50 active:scale-95"
-                >
-                  {isTranslating ? 'Converting...' : 'Auto-Type'}
-                </button>
-              </div>
-
-              {/* Translate Language */}
-              <div className="flex items-center gap-1.5 bg-brand-50 px-2 py-1.5 rounded-full border border-brand-100">
-                <Globe className="w-3.5 h-3.5 text-brand-400 ml-1" />
-                <select
-                  value={targetLanguage}
-                  onChange={(e) => setTargetLanguage(e.target.value)}
-                  className="text-xs bg-transparent outline-none cursor-pointer text-brand-700 font-semibold disabled:opacity-50"
-                  disabled={!selectedUser}
-                >
-                  <option value="English">English</option>
-                  <option value="Hindi">Hindi</option>
-                  <option value="Marathi">Marathi</option>
-                  <option value="Gujarati">Gujarati</option>
-                </select>
-                <button
-                  onClick={handleTranslateLanguage}
-                  type="button"
-                  disabled={!selectedUser || !text.trim() || isTranslatingLanguage}
-                  className="text-[11px] bg-brand-600 hover:bg-brand-700 text-white font-bold px-2.5 py-1 rounded-full shadow-sm transition-all disabled:opacity-50 active:scale-95"
-                >
-                  {isTranslatingLanguage ? 'Translating...' : 'Translate'}
-                </button>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Main Integrated Text Input Bar */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-full p-1.5 border border-gray-200 focus-within:border-brand-400 focus-within:bg-white focus-within:shadow-[0_0_15px_-5px_rgba(79,70,229,0.3)] transition-all">
-            
-            <input 
-              type="file" 
-              accept="image/*" 
-              hidden 
-              ref={fileInputRef} 
-              onChange={handleImageChange} 
-            />
-            
-            <button 
-              type="button"
-              disabled={!selectedUser || isUploading} 
-              onClick={() => fileInputRef.current?.click()}
-              className="text-gray-400 hover:text-brand-600 hover:bg-gray-200 transition-colors p-2.5 rounded-full disabled:opacity-50 shrink-0"
-              title="Attach image"
-            >
-              <ImageIcon className="w-[22px] h-[22px]" />
-            </button>
-            
-            <button 
-              type="button"
-              disabled={!selectedUser} 
-              onClick={toggleRecording}
-              className={`text-gray-400 transition-colors p-2.5 rounded-full disabled:opacity-50 shrink-0 relative ${isRecording ? 'text-red-500 bg-red-50 animate-pulse' : 'hover:text-brand-600 hover:bg-gray-200'}`}
-              title={isRecording ? "Stop listening" : "Start speaking"}
-            >
-              {isRecording && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping border border-white"></span>}
-              <Mic className="w-[22px] h-[22px]" />
-            </button>
-
-            <form className="flex-1 flex items-center h-full mr-1 ml-1" onSubmit={sendMessage}>
-              <input
-                type="text"
-                disabled={!selectedUser || isUploading}
-                value={text}
-                onChange={handleTextChange}
-                placeholder={selectedUser ? "Type a message..." : "Select a contact to chat"}
-                className="bg-transparent border-none outline-none w-full text-gray-800 px-2 py-2 placeholder-gray-400 disabled:opacity-50 text-[15px]"
-              />
-
-              <button 
-                type="submit" 
-                disabled={!selectedUser || (!text.trim() && !selectedImage) || isUploading} 
-                className="bg-brand-600 text-white rounded-full hover:bg-brand-700 transition-transform hover:scale-105 active:scale-95 shadow-md flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-10 h-10 ml-2"
-              >
-                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-4 h-4 ml-0.5" />}
-              </button>
-            </form>
-          </div>
-        </div>
+        <RightSidebar
+          isRightSidebarOpen={isRightSidebarOpen}
+          selectedUser={selectedUser}
+          setIsRightSidebarOpen={setIsRightSidebarOpen}
+          messages={messages}
+          setExpandedMedia={setExpandedMedia}
+        />
       </div>
 
-      {/* Expanded Image Modal */}
-      {expandedImage && (
-        <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setExpandedImage(null)}
-        >
-          <div className="relative max-w-5xl max-h-[90vh] flex flex-col items-center">
-            <button 
-              className="absolute -top-12 md:-top-10 right-0 text-white hover:text-gray-300 p-2 z-50 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpandedImage(null);
-              }}
-            >
-              <X className="w-8 h-8 drop-shadow-md" />
-            </button>
-            <img 
-              src={expandedImage} 
-              alt="Expanded media" 
-              className="max-w-full max-h-[90vh] object-contain rounded-md shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
-      )}
+      <MediaModal
+        expandedMedia={expandedMedia}
+        setExpandedMedia={setExpandedMedia}
+      />
+
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onUpdateUser={handleUpdateProfile}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        user={user}
+        onUpdateUser={handleUpdateProfile}
+      />
     </div>
   );
 }

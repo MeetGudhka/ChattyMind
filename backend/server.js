@@ -9,6 +9,7 @@ import userRoutes from './routes/users.js';
 import messageRoutes from './routes/messages.js';
 import aiRoutes from './routes/ai.js';
 import uploadRoutes from './routes/upload.js';
+import Message from './models/Message.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +22,9 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+
+// Track online users: userId -> socket.id
+const onlineUsers = new Map();
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -46,7 +50,17 @@ io.on('connection', (socket) => {
   // User joins their own personal room (using their userId)
   socket.on('join_user', (userId) => {
     socket.join(userId);
+    socket.userId = userId;
+    onlineUsers.set(userId, socket.id);
+    
+    // Broadcast updated online users list
+    io.emit('get_online_users', Array.from(onlineUsers.keys()));
     console.log(`User ${userId} joined their personal room`);
+  });
+
+  // Client specifically requests online users
+  socket.on('request_online_users', () => {
+    socket.emit('get_online_users', Array.from(onlineUsers.keys()));
   });
 
   // User joins a specific chat room (1-on-1 or group chat)
@@ -56,16 +70,34 @@ io.on('connection', (socket) => {
   });
 
   // Handle sending a message
-  socket.on('send_message', (data) => {
-    const { chatId, senderId, text, receiverId } = data;
-    // Broadcast message to everyone in the chat room (including sender if needed, or exclude sender)
-    // Normally, the sender optimistically updates their UI, so we can broadcast to the room minus the sender, 
-    // or just broadcast to the whole room and let frontend filter duplicates.
-    socket.to(chatId).emit('receive_message', data);
+  socket.on('send_message', async (data) => {
+    const { chatId, senderId, text, receiverId, mediaUrl, mediaType } = data;
     
-    // Also notify the receiver directly if they are connected (useful for notifications)
-    if (receiverId) {
-       socket.to(receiverId).emit('new_message_notification', data);
+    try {
+      // PERSIST TO DATABASE
+      const newMessage = new Message({
+        chatId,
+        senderId,
+        receiverId,
+        text,
+        mediaUrl,
+        mediaType,
+        status: 'sent'
+      });
+      const savedMessage = await newMessage.save();
+      
+      // Add the saved ID to the data we broadcast
+      const messageWithId = { ...data, _id: savedMessage._id, createdAt: savedMessage.createdAt };
+
+      // Broadcast message to everyone in the chat room
+      socket.to(chatId).emit('receive_message', messageWithId);
+      
+      // Also notify the receiver directly if they are connected
+      if (receiverId) {
+         socket.to(receiverId).emit('new_message_notification', messageWithId);
+      }
+    } catch (error) {
+      console.error("Error saving message via socket:", error);
     }
   });
 
@@ -87,8 +119,16 @@ io.on('connection', (socket) => {
     socket.to(chatId).emit('message_status_update', { chatId, status: 'seen' });
   });
 
+  socket.on('delete_message_everyone', ({ chatId, messageId }) => {
+    socket.to(chatId).emit('message_deleted_everyone', { messageId });
+  });
+
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
+    if (socket.userId) {
+      onlineUsers.delete(socket.userId);
+      io.emit('get_online_users', Array.from(onlineUsers.keys()));
+    }
   });
 });
 

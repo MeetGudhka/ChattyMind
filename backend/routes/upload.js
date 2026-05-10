@@ -24,7 +24,7 @@ router.post('/', upload.single('media'), async (req, res) => {
 
     // Stream the buffer from memory directly to Cloudinary
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'chattymind_media' },
+      { folder: 'chattymind_media', resource_type: 'auto' },
       (error, result) => {
         if (error) {
           console.error('Cloudinary upload error:', error);

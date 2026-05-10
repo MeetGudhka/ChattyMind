@@ -25,7 +25,7 @@ function App() {
       setSocket(newSocket);
 
       newSocket.on('connect', () => {
-         newSocket.emit('join_user', user.id);
+         newSocket.emit('join_user', user._id || user.id);
       });
 
       return () => newSocket.close();
@@ -38,7 +38,7 @@ function App() {
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" /> : <Login setAuth={setUser} />} />
           <Route path="/register" element={user ? <Navigate to="/" /> : <Register setAuth={setUser} />} />
-          <Route path="/" element={!user ? <Navigate to="/login" /> : socket ? <ChatLayout socket={socket} user={user} setAuth={setUser} /> : <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500 tracking-wider">Connecting to ChattyMind...</div>} />
+          <Route path="/" element={!user ? <Navigate to="/login" /> : socket ? <ChatLayout socket={socket} user={user} setAuth={setUser} /> : <div className="flex h-screen items-center justify-center text-textSecondary tracking-wider animate-pulse">Connecting to ChattyMind...</div>} />
         </Routes>
       </div>
     </Router>

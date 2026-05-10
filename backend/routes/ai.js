@@ -1,5 +1,7 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Message from '../models/Message.js';
 
 const router = express.Router();
 
@@ -9,9 +11,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
   const models = [
     'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-flash-latest'
+    'deep-research-preview-04-2026'
   ];
   let lastError;
   
@@ -177,6 +177,64 @@ Text to refine: "${text}"
   } catch (error) {
     console.error("Gemini AI refinement error:", error);
     res.status(500).json({ error: 'Failed to refine message.' });
+  }
+});
+
+router.post('/analyze-persona', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const Message = mongoose.model('Message');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    
+    // Fetch last 50 sent messages for analysis
+    const sentMessages = await Message.find({ senderId: userObjectId })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select('text');
+
+    if (!sentMessages || sentMessages.length < 5) {
+      return res.json({ 
+        error: "Not enough messages sent yet to build a persona profile. Keep chatting!",
+        persona: null 
+      });
+    }
+
+    const messagesText = sentMessages.map(m => m.text).join('\n---\n');
+
+    const prompt = `
+You are an expert communication analyst. 
+Analyze the following messages sent by a user and build a communication persona profile.
+
+Messages:
+${messagesText}
+
+Based on these messages, provide:
+1. Tone Breakdown (Percentage split across: Professional, Casual, Friendly, Sarcastic).
+2. Overall Sentiment Score (1-100, where 100 is extremely positive/enthusiastic).
+3. A short "Persona Title" (e.g., The Diplomat, The Direct Leader, The Friendly Neighbor).
+4. A 2-sentence summary of their communication style.
+
+IMPORTANT: Your response must be NOTHING BUT a raw JSON object with this exact structure:
+{
+  "personaTitle": "string",
+  "summary": "string",
+  "sentimentScore": number,
+  "toneBreakdown": [
+    { "name": "Professional", "value": number },
+    { "name": "Casual", "value": number },
+    { "name": "Friendly", "value": number },
+    { "name": "Sarcastic", "value": number }
+  ]
+}
+`;
+
+    const responseText = await generateWithFallback(prompt, 0.4, true);
+    const analysis = JSON.parse(responseText);
+    
+    res.json(analysis);
+  } catch (error) {
+    console.error("Gemini AI persona analysis error:", error);
+    res.status(500).json({ error: 'Failed to analyze communication persona.' });
   }
 });
 

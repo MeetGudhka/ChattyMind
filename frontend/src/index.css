@@ -1,9 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --primary: #00cfff !important;
+  --secondary: #a855f7 !important;
+}
+
 @layer base {
   body {
-    @apply antialiased text-gray-800 bg-gray-50;
+    @apply antialiased text-[#f0f4ff] bg-[#0a0a1e] font-sans overflow-x-hidden;
   }
+}
+
+/* Fixed background with blur and scale */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image: var(--bg-image, url('/ChattyMind-Background.jpg'));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.1);
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* Dark atmospheric overlay */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(15, 23, 42, 0.85); /* Cleaner deep slate */
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Custom dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }

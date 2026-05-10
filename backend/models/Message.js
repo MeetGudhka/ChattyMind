@@ -6,7 +6,11 @@ const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
   text: { type: String, default: '' },
   status: { type: String, enum: ['sent', 'delivered', 'seen'], default: 'sent' },
-  mediaUrl: { type: String, default: '' }
+  isFirstSeen: { type: Boolean, default: false },
+  mediaUrl: { type: String, default: '' },
+  mediaType: { type: String, default: '' },
+  deletedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  isDeletedForEveryone: { type: Boolean, default: false }
 }, { timestamps: true });
 
 export default mongoose.model('Message', messageSchema);
