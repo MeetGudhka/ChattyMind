@@ -24,7 +24,7 @@ async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
   
   for (const modelName of models) {
     try {
-      console.log(`[AI] Attempting generation with model: ${modelName}`);
+      console.log("Using Gemini model:", modelName);
       const model = genAI.getGenerativeModel({ model: modelName });
       
       const config = { temperature };
@@ -37,7 +37,7 @@ async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
       
       return result.response.text().trim();
     } catch (error) {
-      console.warn(`[AI Fallback] Model ${modelName} failed. Error:`, error.message);
+      console.error("Full Gemini Error:", error);
       lastError = error;
       // Continue to the next model in the array
     }
@@ -80,11 +80,12 @@ Example: ["Suggestion 1", "Suggestion 2"]
     try {
       suggestions = JSON.parse(responseText);
     } catch (e) {
-      console.warn("[AI Parse Warning] Failed to parse JSON, attempting manual extraction.", e.message);
-      suggestions = responseText
-        .split('\n')
-        .map(s => s.replace(/^\d+\.\s*/, '').replace(/^-\s*/, '').replace(/^"|"$/g, '').replace(/\[|\]/g, '').trim())
-        .filter(s => s.length > 0);
+      console.error("JSON Parse Error:", responseText);
+
+      suggestions = [
+        "AI response formatting issue.",
+        "Please try again."
+      ];
     }
 
     if (!Array.isArray(suggestions)) suggestions = [suggestions];
