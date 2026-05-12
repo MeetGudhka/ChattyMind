@@ -15,12 +15,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // For development. Update in production.
+    origin: 'https://chattymind-frontend.vercel.app', // For development. Update in production.
     methods: ['GET', 'POST']
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://chattymind-frontend.vercel.app',
+  credentials: true
+}));
 app.use(express.json());
 
 // Track online users: userId -> socket.id
@@ -52,7 +55,7 @@ io.on('connection', (socket) => {
     socket.join(userId);
     socket.userId = userId;
     onlineUsers.set(userId, socket.id);
-    
+
     // Broadcast updated online users list
     io.emit('get_online_users', Array.from(onlineUsers.keys()));
     console.log(`User ${userId} joined their personal room`);
