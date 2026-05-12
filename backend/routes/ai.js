@@ -92,7 +92,7 @@ Example: ["Suggestion 1", "Suggestion 2"]
     res.status(200).json({ suggestions: suggestions.slice(0, 2) });
   } catch (error) {
     console.error("[AI Route Error] /suggest route failed:", error.message);
-    res.status(500).json({
+    res.status(200).json({
       error: 'Failed to generate suggestions.',
       suggestions: [
         `[Fallback Error] ${error.message || 'Check terminal logs'}`,
