@@ -15,8 +15,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'https://chattymind-frontend.vercel.app', // For development. Update in production.
-    methods: ['GET', 'POST']
+    origin: 'https://chattymind-frontend.vercel.app',
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
