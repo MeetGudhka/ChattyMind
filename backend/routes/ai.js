@@ -1,23 +1,30 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import Message from '../models/Message.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 
+if (!process.env.GEMINI_API_KEY) {
+  console.warn("WARNING: GEMINI_API_KEY is not set in environment variables. AI features will fail.");
+}
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
-// Helper function to sequentially try models if one hits a quota limit
+// Helper function to sequentially try models if one hits a quota limit or region restriction
 async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
+  // STRICT REQUIREMENT: Only use stable, globally-supported models.
   const models = [
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite'
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
   ];
   let lastError;
   
   for (const modelName of models) {
     try {
+      console.log(`[AI] Attempting generation with model: ${modelName}`);
       const model = genAI.getGenerativeModel({ model: modelName });
       
       const config = { temperature };
@@ -27,14 +34,17 @@ async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: config
       });
+      
       return result.response.text().trim();
     } catch (error) {
-      console.log(`[AI Fallback] ${modelName} failed, trying next... Error:`, error.message);
+      console.warn(`[AI Fallback] Model ${modelName} failed. Error:`, error.message);
       lastError = error;
+      // Continue to the next model in the array
     }
   }
   
-  throw lastError; // If all models fail (e.g. invalid API key), throw the final error
+  console.error('[AI Error] All fallback models failed. Last error:', lastError?.message);
+  throw lastError; // If all models fail, throw the final error
 }
 
 router.post('/suggest', async (req, res) => {
@@ -45,7 +55,6 @@ router.post('/suggest', async (req, res) => {
       return res.json({ suggestions: [] });
     }
 
-    // Format context to feed AI if available
     const contextString = context.length > 0
       ? `Recent conversation context:\n${context.map(c => `${c.sender}: ${c.text}`).join('\n')}\n`
       : "";
@@ -71,7 +80,7 @@ Example: ["Suggestion 1", "Suggestion 2"]
     try {
       suggestions = JSON.parse(responseText);
     } catch (e) {
-      // Fallback if AI didn't return perfectly formatted JSON
+      console.warn("[AI Parse Warning] Failed to parse JSON, attempting manual extraction.", e.message);
       suggestions = responseText
         .split('\n')
         .map(s => s.replace(/^\d+\.\s*/, '').replace(/^-\s*/, '').replace(/^"|"$/g, '').replace(/\[|\]/g, '').trim())
@@ -80,16 +89,14 @@ Example: ["Suggestion 1", "Suggestion 2"]
 
     if (!Array.isArray(suggestions)) suggestions = [suggestions];
 
-    res.json({ suggestions: suggestions.slice(0, 2) });
+    res.status(200).json({ suggestions: suggestions.slice(0, 2) });
   } catch (error) {
-    console.error("Gemini AI suggestion error:", error);
-
-    // Fallback mock to prove UI works even if API fails
-    res.json({
+    console.error("[AI Route Error] /suggest route failed:", error.message);
+    res.status(500).json({
+      error: 'Failed to generate suggestions.',
       suggestions: [
-        `[Fallback] Gemini Error: ${error.message || 'Check terminal logs'}`,
-        `Make sure your GEMINI_API_KEY is correctly set in backend/.env`,
-        `The vertical suggestions UI is communicating properly!`
+        `[Fallback Error] ${error.message || 'Check terminal logs'}`,
+        `Please ensure GEMINI_API_KEY is configured correctly.`
       ]
     });
   }
@@ -115,10 +122,10 @@ Text to convert: "${text}"
 `;
 
     const translatedText = await generateWithFallback(prompt, 0.3);
-    res.json({ text: translatedText });
+    res.status(200).json({ text: translatedText });
   } catch (error) {
-    console.error("Gemini AI translation error:", error);
-    res.status(500).json({ error: 'Failed to translate message.' });
+    console.error("[AI Route Error] /translate route failed:", error.message);
+    res.status(500).json({ error: 'Failed to translate message script.', details: error.message });
   }
 });
 
@@ -138,10 +145,10 @@ Text to translate: "${text}"
 `;
 
     const translatedText = await generateWithFallback(prompt, 0.3);
-    res.json({ text: translatedText });
+    res.status(200).json({ text: translatedText });
   } catch (error) {
-    console.error("Gemini AI language translation error:", error);
-    res.status(500).json({ error: 'Failed to translate message.' });
+    console.error("[AI Route Error] /translate-language route failed:", error.message);
+    res.status(500).json({ error: 'Failed to translate message language.', details: error.message });
   }
 });
 
@@ -174,10 +181,10 @@ Text to refine: "${text}"
 `;
 
     const refinedText = await generateWithFallback(prompt, 0.4);
-    res.json({ text: refinedText });
+    res.status(200).json({ text: refinedText });
   } catch (error) {
-    console.error("Gemini AI refinement error:", error);
-    res.status(500).json({ error: 'Failed to refine message.' });
+    console.error("[AI Route Error] /refine route failed:", error.message);
+    res.status(500).json({ error: 'Failed to refine message.', details: error.message });
   }
 });
 
@@ -194,7 +201,7 @@ router.post('/analyze-persona', async (req, res) => {
       .select('text');
 
     if (!sentMessages || sentMessages.length < 5) {
-      return res.json({ 
+      return res.status(200).json({ 
         error: "Not enough messages sent yet to build a persona profile. Keep chatting!",
         persona: null 
       });
@@ -232,12 +239,11 @@ IMPORTANT: Your response must be NOTHING BUT a raw JSON object with this exact s
     const responseText = await generateWithFallback(prompt, 0.4, true);
     const analysis = JSON.parse(responseText);
     
-    res.json(analysis);
+    res.status(200).json(analysis);
   } catch (error) {
-    console.error("Gemini AI persona analysis error:", error);
-    res.status(500).json({ error: 'Failed to analyze communication persona.' });
+    console.error("[AI Route Error] /analyze-persona route failed:", error.message);
+    res.status(500).json({ error: 'Failed to analyze communication persona.', details: error.message });
   }
 });
 
 export default router;
-
