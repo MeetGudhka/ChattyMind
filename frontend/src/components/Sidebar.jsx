@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { MessageSquare, Settings, LogOut } from 'lucide-react';
+import { Search, MessageSquare, Settings, LogOut } from 'lucide-react';
 import axios from 'axios';
 
 export default function Sidebar({ setAuth, user, onSelectUser, unreadCounts = {}, onlineUsers = [], onSettings }) {
   const [users, setUsers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -23,7 +24,11 @@ export default function Sidebar({ setAuth, user, onSelectUser, unreadCounts = {}
     localStorage.removeItem('user');
     setAuth(null);
   };
-  
+
+  const filteredUsers = users.filter(u => 
+    u.username.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="w-64 bg-white/[0.02] backdrop-blur-3xl border-r border-white/10 h-full flex flex-col shrink-0 animate-slideInLeft">
       <div className="h-16 px-6 border-b border-white/10 flex items-center shrink-0">
@@ -32,38 +37,56 @@ export default function Sidebar({ setAuth, user, onSelectUser, unreadCounts = {}
           ChattyMind
         </h1>
       </div>
-      
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        <h2 className="text-[10px] font-bold text-textSecondary uppercase tracking-widest mb-4">Contacts</h2>
-        {users.map((u) => {
+
+      <div className="p-4 border-b border-white/5">
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-primary transition-colors" />
+          <input 
+            type="text" 
+            placeholder="Search contacts..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-white/[0.03] border border-white/5 focus:border-primary/40 focus:bg-white/[0.06] rounded-2xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-white/20 outline-none transition-all duration-300"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+        <h2 className="text-[10px] font-bold text-white/60 uppercase tracking-[0.3em] mb-4 ml-3 opacity-80">
+          {searchTerm ? 'Search Results' : 'Contacts'}
+        </h2>
+        {filteredUsers.map((u, index) => {
           const isOnline = onlineUsers.includes(u._id);
-          
+
           return (
-            <div 
-              key={u._id} 
+            <div
+              key={u._id}
               onClick={() => onSelectUser(u)}
-              className="flex items-center justify-between p-3 bg-white/[0.02] rounded-2xl cursor-pointer transition-all duration-300 border border-white/5 hover:bg-white/[0.06] hover:border-white/10 hover:shadow-xl hover:-translate-y-0.5 group relative overflow-hidden"
+              className="flex items-center justify-between p-3.5 bg-white/[0.01] rounded-[24px] cursor-pointer transition-all duration-500 border border-transparent hover:bg-white/[0.08] hover:border-white/10 hover:shadow-premium group relative overflow-hidden animate-slideInLeft"
+              style={{ animationDelay: `${index * 60}ms` }}
             >
-              {/* Subtle hover glow at the top */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              
-              <div className="flex items-center gap-3 min-w-0">
+              {/* Dynamic hover glow */}
+              <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+
+              <div className="flex items-center gap-4 min-w-0 relative z-10">
                 <div className="relative">
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-inner ring-1 transition-all duration-300 ${isOnline ? 'bg-gradient-to-br from-primary to-secondary ring-white/20 group-hover:ring-primary/50' : 'bg-white/5 ring-white/10 text-white/50 grayscale'}`}>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-premium ring-1 transition-all duration-500 ${isOnline ? 'bg-gradient-to-br from-primary to-secondary ring-white/10 group-hover:ring-white/40 group-hover:scale-105' : 'bg-white/5 ring-white/5 text-white/20 grayscale'}`}>
                     {u.username.charAt(0).toUpperCase()}
                   </div>
-                  {/* Online indicator dot */}
-                  <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-[2.5px] border-[#0f172a] transition-colors duration-300 ${isOnline ? 'bg-active shadow-[0_0_10px_#00ffaa]' : 'bg-white/20'}`}></div>
+                  {/* Online indicator dot with pulse */}
+                  <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-[3px] border-[#0a0a1e] transition-all duration-500 ${isOnline ? 'bg-active shadow-glow animate-pulse' : 'bg-white/10'}`}></div>
                 </div>
                 <div className="overflow-hidden">
-                  <p className={`text-[14px] font-bold truncate transition-colors tracking-wide ${isOnline ? 'text-white/90 group-hover:text-white' : 'text-white/60 group-hover:text-white/80'}`}>{u.username}</p>
-                  <p className={`text-[11px] font-medium mt-0.5 flex items-center gap-1 transition-colors ${isOnline ? 'text-active drop-shadow-[0_0_5px_rgba(0,255,170,0.3)]' : 'text-white/40'}`}>
-                    {isOnline ? 'Online' : 'Offline'}
-                  </p>
+                  <p className={`text-[15px] font-bold truncate transition-all tracking-wide ${isOnline ? 'text-white group-hover:text-primary' : 'text-white/40 group-hover:text-white/70'}`}>{u.username}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className={`text-[11px] font-semibold transition-colors ${isOnline ? 'text-active/70' : 'text-white/20'}`}>
+                      {isOnline ? 'Active Now' : 'Last seen recently'}
+                    </p>
+                  </div>
                 </div>
               </div>
               {unreadCounts[u._id] > 0 && (
-                <div className="bg-gradient-to-r from-primary to-secondary text-white text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] flex items-center justify-center shadow-[0_0_15px_rgba(0,207,255,0.5)] animate-bounceDelay">
+                <div className="bg-gradient-to-r from-primary to-secondary text-white text-[10px] font-black px-2.5 py-1 rounded-full min-w-[24px] h-[24px] flex items-center justify-center shadow-glow animate-bounceDelay relative z-10">
                   {unreadCounts[u._id]}
                 </div>
               )}
@@ -71,29 +94,31 @@ export default function Sidebar({ setAuth, user, onSelectUser, unreadCounts = {}
           );
         })}
       </div>
-      
-      <div className="p-4 border-t border-white/10 flex flex-col gap-4 bg-white/[0.01]">
-        <div 
-          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/[0.05] rounded-2xl transition-all group relative overflow-hidden border border-transparent hover:border-white/10"
+
+      <div className="p-4 border-t border-white/5 flex flex-col gap-3 bg-white/[0.02] backdrop-blur-3xl rounded-t-[28px] shadow-[0_-8px_30px_rgba(0,0,0,0.2)]">
+        <div
+          className="flex items-center gap-3 px-3 py-3 cursor-pointer bg-white/[0.03] border border-white/5 hover:border-white/20 rounded-[22px] transition-all duration-500 group relative overflow-hidden shadow-inner-light"
           onClick={onSettings}
           title="Profile Settings"
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-300 ring-2 ring-transparent group-hover:ring-primary/30">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-md font-black shrink-0 shadow-premium group-hover:scale-105 transition-all duration-500 ring-2 ring-white/10 group-hover:ring-primary/40 relative z-10">
             {user?.username?.charAt(0).toUpperCase()}
           </div>
-          <div className="overflow-hidden flex-1">
-            <p className="text-[14px] font-bold text-textPrimary truncate group-hover:text-primary transition-colors tracking-wide">{user?.username}</p>
-            <p className="text-[11px] text-textSecondary truncate opacity-70">{user?.tagline || 'Available'}</p>
+          <div className="overflow-hidden flex-1 relative z-10">
+            <p className="text-[14px] font-bold text-white truncate tracking-wide group-hover:text-primary transition-colors">{user?.username}</p>
+            <p className="text-[9px] text-white/30 truncate font-bold uppercase tracking-[0.05em] mt-0.5">{user?.tagline || 'Online & Available'}</p>
           </div>
-          <Settings className="w-4 h-4 text-white/20 group-hover:text-white/60 transition-colors shrink-0" />
+          <Settings className="w-6 h-6 text-white/20 group-hover:text-white group-hover:rotate-90 transition-all duration-700 shrink-0 relative z-10" />
         </div>
 
-        <button 
-          onClick={handleLogout} 
-          className="flex items-center gap-2 text-danger hover:text-[#ff2a5f] w-full px-4 py-3 rounded-xl hover:bg-danger/10 hover:border hover:border-danger/20 transition-all duration-300 border border-transparent group/logout"
+        <button
+          onClick={handleLogout}
+          className="flex items-center justify-center gap-2.5 text-white/25 hover:text-danger w-full px-4 py-2.5 rounded-[18px] hover:bg-danger/10 border border-white/5 hover:border-danger/20 transition-all duration-500 group/logout active:scale-95"
         >
-          <LogOut className="w-4 h-4 group-hover/logout:-translate-x-0.5 transition-transform" />
-          <span className="text-sm font-semibold tracking-wide">Logout</span>
+          <LogOut className="w-3.5 h-3.5 group-hover/logout:-translate-x-1 transition-transform opacity-60" />
+          <span className="text-[10px] font-black tracking-[0.15em] uppercase">Logout Session</span>
         </button>
       </div>
     </div>

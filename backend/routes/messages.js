@@ -67,23 +67,62 @@ router.get('/:userId/:otherUserId', async (req, res) => {
   }
 });
 
-// Send a message
+// Send a message — idempotent upsert keyed on tempId
+// Using findOneAndUpdate with upsert:true guarantees that even if this
+// endpoint is called twice concurrently with the same tempId, MongoDB
+// performs the insert exactly once (atomic at the DB level).
 router.post('/send', async (req, res) => {
   try {
-    const { chatId, senderId, receiverId, text, mediaUrl, mediaType } = req.body;
+    // Only extract known fields — explicitly ignore any stray _id from the client
+    const { chatId, senderId, receiverId, text, mediaUrl, mediaType, tempId } = req.body;
 
-    const newMessage = new Message({
+    if (!chatId || !senderId) {
+      return res.status(400).json({ message: 'chatId and senderId are required' });
+    }
+
+    // Build the document that will be inserted on first call
+    const insertDoc = {
       chatId,
       senderId,
       receiverId,
-      text,
-      mediaUrl,
-      mediaType
-    });
+      text: text || '',
+      mediaUrl: mediaUrl || '',
+      mediaType: mediaType || '',
+      tempId: tempId || undefined,
+      status: 'sent',
+    };
 
-    await newMessage.save();
-    res.status(201).json(newMessage);
+    let savedMessage;
+
+    if (tempId) {
+      // Atomic upsert: if tempId already exists, return the existing doc.
+      // $setOnInsert only runs on INSERT, never on UPDATE — so calling this
+      // twice with the same tempId is completely safe.
+      savedMessage = await Message.findOneAndUpdate(
+        { tempId },                        // filter: find by tempId
+        { $setOnInsert: insertDoc },       // only set fields on INSERT
+        {
+          upsert: true,                    // insert if not found
+          new: true,                       // return the resulting doc
+          setDefaultsOnInsert: true,       // apply schema defaults on insert
+        }
+      );
+    } else {
+      // No tempId: just save directly (e.g. media-only messages)
+      const newMessage = new Message(insertDoc);
+      savedMessage = await newMessage.save();
+    }
+
+    res.status(200).json(savedMessage);
   } catch (error) {
+    // E11000: duplicate key on tempId — race condition lost, fetch the winner
+    if (error.code === 11000) {
+      try {
+        const existing = await Message.findOne({ tempId: req.body.tempId });
+        if (existing) return res.status(200).json(existing);
+      } catch (_) {}
+    }
+    console.error('Error saving message:', error);
     res.status(500).json({ message: 'Error saving message' });
   }
 });

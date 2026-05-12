@@ -32,37 +32,44 @@ export default {
         danger: '#ff4f7b',
       },
       boxShadow: {
-        'glass': '0 8px 32px rgba(0, 0, 0, 0.4)',
+        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.4)',
+        'glass-sm': '0 4px 16px 0 rgba(0, 0, 0, 0.2)',
         'glow': '0 0 20px rgba(0, 207, 255, 0.5)',
+        'inner-light': 'inset 0 1px 1px 0 rgba(255, 255, 255, 0.05)',
+        'premium': '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
       },
       keyframes: {
         fadeInUp: {
-          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         slideDown: {
-          '0%': { opacity: '0', transform: 'translateY(-20px)' },
+          '0%': { opacity: '0', transform: 'translateY(-10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         slideInLeft: {
-          '0%': { opacity: '0', transform: 'translateX(-20px)' },
+          '0%': { opacity: '0', transform: 'translateX(-10px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
         },
         float: {
           '0%, 100%': { transform: 'translateY(0)' },
-          '50%': { transform: 'translateY(-10px)' },
+          '50%': { transform: 'translateY(-5px)' },
         },
         bounceDelay: {
           '0%, 80%, 100%': { transform: 'translateY(0)' },
-          '40%': { transform: 'translateY(-6px)' },
+          '40%': { transform: 'translateY(-4px)' },
+        },
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
         }
       },
       animation: {
-        fadeInUp: 'fadeInUp 0.6s ease-out forwards',
-        slideDown: 'slideDown 0.5s ease-out forwards',
-        slideInLeft: 'slideInLeft 0.5s ease-out forwards',
-        float: 'float 4s ease-in-out infinite',
+        fadeInUp: 'fadeInUp 0.4s ease-out forwards',
+        slideDown: 'slideDown 0.4s ease-out forwards',
+        slideInLeft: 'slideInLeft 0.4s ease-out forwards',
+        float: 'float 3s ease-in-out infinite',
         bounceDelay: 'bounceDelay 1.4s infinite ease-in-out both',
+        shimmer: 'shimmer 2s infinite',
       }
     },
   },

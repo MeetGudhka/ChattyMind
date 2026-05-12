@@ -10,6 +10,7 @@ const messageSchema = new mongoose.Schema({
   mediaUrl: { type: String, default: '' },
   mediaType: { type: String, default: '' },
   deletedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  tempId: { type: String, unique: true, sparse: true },
   isDeletedForEveryone: { type: Boolean, default: false }
 }, { timestamps: true });
 

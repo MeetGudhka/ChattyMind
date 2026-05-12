@@ -8,7 +8,7 @@ import MediaModal from './chat/MediaModal';
 import ProfileModal from './chat/ProfileModal';
 import SettingsModal from './chat/SettingsModal';
 import { Send, Image as ImageIcon, Sparkles, Mic, MessageSquare, Globe, X, Loader2, Check, CheckCheck, Phone, Video, Info, FileText } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 export default function ChatLayout({ socket, user: initialUser, setAuth }) {
@@ -36,6 +36,10 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  // ─── In-chat message search ──────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchIndex, setSearchIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const aiDebounceRef = useRef(null);
@@ -43,11 +47,30 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
   const recognitionRef = useRef(null);
   const lastFetchedTextRef = useRef('');
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, suggestions, isSuggesting]);
+  // ─── Send-once guard ─────────────────────────────────────────────────────
+  // isSendingRef prevents double-sends from form submit + button click
+  // or React StrictMode double-invocation.
+  const isSendingRef = useRef(false);
 
-  // Handle Theme Application
+  // ─── Deduplication set ───────────────────────────────────────────────────
+  // Tracks every message id (tempId or real _id) we have already rendered.
+  // Reset when switching chats (inside fetchChat).
+  const processedMessagesRef = useRef(new Set());
+
+  const [firstUnseenId, setFirstUnseenId] = useState(null);
+  const firstUnseenRef = useRef(null);
+
+  // ── Scroll to first unseen on load, then to bottom on new messages ────────
+  useEffect(() => {
+    if (firstUnseenId && firstUnseenRef.current) {
+      firstUnseenRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setFirstUnseenId(null);
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, suggestions, isSuggesting, firstUnseenId]);
+
+  // ── Theme application ─────────────────────────────────────────────────────
   useEffect(() => {
     if (user.settings?.accentColor) {
       const themes = {
@@ -56,10 +79,7 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
         'emerald-midnight': { bg: 'https://images.unsplash.com/photo-1534841090574-cbe293998897?q=80&w=2070&auto=format&fit=crop', p: '#34d399', s: '#134e4a' },
         'rose-quartz': { bg: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2070&auto=format&fit=crop', p: '#fb7185', s: '#4f46e5' }
       };
-      
       const config = themes[user.settings.accentColor] || themes['cyan-purple'];
-      
-      // Update CSS variables on the root element
       const root = document.documentElement;
       root.style.setProperty('--primary', config.p);
       root.style.setProperty('--secondary', config.s);
@@ -67,79 +87,136 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     }
   }, [user.settings?.accentColor]);
 
+  // ── Fetch initial unread counts ───────────────────────────────────────────
   useEffect(() => {
     const fetchUnreadCounts = async () => {
       try {
         const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/unread-counts/${currentUserId}`);
         setUnreadCounts(data);
       } catch (error) {
-        console.error("Error fetching unread counts", error);
+        console.error('Error fetching unread counts', error);
       }
     };
     if (currentUserId) fetchUnreadCounts();
   }, [currentUserId]);
 
+  // ── Load chat when a user is selected ────────────────────────────────────
   useEffect(() => {
-    if (selectedUser) {
-      const fetchChat = async () => {
-        try {
-          const { data } = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/messages/${currentUserId}/${selectedUser._id}`);
-          setChatId(data.chat._id);
-          setMessages(data.messages);
-          socket.emit('join_chat', data.chat._id);
+    if (!selectedUser) return;
 
-          // Mark as delivered immediately upon opening (replaces single check with double)
-          axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-delivered`, {
+    const fetchChat = async () => {
+      try {
+        const { data } = await axios.get(
+          `${import.meta.env.VITE_BACKEND_URL}/api/messages/${currentUserId}/${selectedUser._id}`
+        );
+
+        setChatId(data.chat._id);
+        setMessages(data.messages);
+
+        // ── Prime the dedup set with messages already in DB ──────────────
+        processedMessagesRef.current = new Set();
+        data.messages.forEach(m => {
+          if (m._id) processedMessagesRef.current.add(m._id.toString());
+          if (m.tempId) processedMessagesRef.current.add(m.tempId);
+        });
+
+        // Find first unseen message from the other user for scroll-to
+        const firstUnseen = data.messages.find(
+          m => m.senderId?.toString() === selectedUser._id && m.status !== 'seen'
+        );
+        setFirstUnseenId(firstUnseen ? firstUnseen._id : null);
+
+        // Join the shared chatId room (for typing indicators, delete events, status)
+        socket.emit('join_chat', data.chat._id);
+
+        // Mark messages as delivered for this user
+        axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-delivered`, {
+          chatId: data.chat._id,
+          receiverId: currentUserId
+        }).then(() => {
+          // Notify the sender (pass senderId so server can target their personal room)
+          socket.emit('messages_delivered', {
             chatId: data.chat._id,
-            receiverId: currentUserId
-          }).then(() => {
-            socket.emit('messages_delivered', { chatId: data.chat._id });
+            senderId: selectedUser._id  // the person who sent those messages
           });
+        });
 
-          // Reset unread count for this user
-          setUnreadCounts(prev => ({ ...prev, [selectedUser._id]: 0 }));
-        } catch (error) {
-          console.error("Error fetching chat", error);
-        }
-      };
-      fetchChat();
-    }
-  }, [selectedUser, user.id, socket]);
+        // Reset unread badge for this contact
+        setUnreadCounts(prev => ({ ...prev, [selectedUser._id]: 0 }));
+      } catch (error) {
+        console.error('Error fetching chat', error);
+      }
+    };
 
+    fetchChat();
+  }, [selectedUser, currentUserId, socket]);
+
+  // ── Socket event handlers ─────────────────────────────────────────────────
   useEffect(() => {
+    // ── receive_message ───────────────────────────────────────────────────
     const receiveMessageHandler = (newMessage) => {
-      if (newMessage.chatId === chatId) {
-        setMessages((prev) => {
-          if (prev.find(m => m._id === newMessage._id)) return prev;
+      // Deduplication: use tempId first, then real _id
+      const dedupeKey = newMessage.tempId || newMessage._id?.toString();
+      if (!dedupeKey) return;
+      if (processedMessagesRef.current.has(dedupeKey)) return;
+
+      // Also check by real _id if present
+      if (newMessage._id && processedMessagesRef.current.has(newMessage._id.toString())) return;
+
+      // Mark both ids as processed
+      processedMessagesRef.current.add(dedupeKey);
+      if (newMessage._id) processedMessagesRef.current.add(newMessage._id.toString());
+
+      // ── Message for the currently open chat ────────────────────────────
+      if (newMessage.chatId?.toString() === chatId?.toString()) {
+        setMessages(prev => {
+          // State-level safety net: reject if any existing message shares an id
+          const alreadyExists = prev.some(m =>
+            (m._id && newMessage._id && m._id.toString() === newMessage._id.toString()) ||
+            (m.tempId && newMessage.tempId && m.tempId === newMessage.tempId)
+          );
+          if (alreadyExists) return prev;
           return [...prev, newMessage];
         });
 
-        // If we receive a message and the chat is open, mark it seen
-        if (user.settings?.readReceipts !== false) {
-          axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
-            chatId,
-            receiverId: currentUserId
-          }).then(() => {
-            socket.emit('messages_seen', { chatId, receiverId: selectedUser._id });
-          });
-        }
+        // Always call mark-seen so isFirstSeen=true clears the unread badge.
+        // The server checks the receiver's readReceipts setting and only updates
+        // message status to 'seen' if it is enabled.
+        axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
+          chatId,
+          receiverId: currentUserId
+        }).then(() => {
+          // Only emit 'messages_seen' if read receipts are ON.
+          // This is what makes the sender's tick turn green — skip it when OFF
+          // so the sender only ever sees the gray double-tick (delivered).
+          if (user.settings?.readReceipts !== false) {
+            socket.emit('messages_seen', {
+              chatId,
+              senderId: newMessage.senderId
+            });
+          }
+        });
       } else {
-        // Increment unread count for background chat
+        // ── Background chat: increment unread badge ────────────────────
         setUnreadCounts(prev => ({
           ...prev,
           [newMessage.senderId]: (prev[newMessage.senderId] || 0) + 1
         }));
 
-        // Mark it delivered
+        // Mark as delivered in the background
         axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-delivered`, {
           chatId: newMessage.chatId,
           receiverId: currentUserId
         }).then(() => {
-          socket.emit('messages_delivered', { chatId: newMessage.chatId });
+          socket.emit('messages_delivered', {
+            chatId: newMessage.chatId,
+            senderId: newMessage.senderId
+          });
         });
       }
     };
 
+    // ── typing ────────────────────────────────────────────────────────────
     const handleTyping = ({ userId }) => {
       if (selectedUser && userId === selectedUser._id) setIsOtherUserTyping(true);
     };
@@ -148,48 +225,70 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
       if (selectedUser && userId === selectedUser._id) setIsOtherUserTyping(false);
     };
 
+    // ── message_status_update ─────────────────────────────────────────────
     const handleStatusUpdate = ({ chatId: incomingChatId, status }) => {
-      if (incomingChatId === chatId) {
-        setMessages((prev) => prev.map(m => ({ ...m, status: m.senderId === currentUserId ? status : m.status })));
+      if (incomingChatId?.toString() === chatId?.toString()) {
+        setMessages(prev =>
+          prev.map(m => ({
+            ...m,
+            status: m.senderId?.toString() === currentUserId ? status : m.status
+          }))
+        );
       }
     };
 
-    const handleOnlineUsers = (users) => {
-      setOnlineUsers(users);
+    // ── online users ──────────────────────────────────────────────────────
+    const handleOnlineUsers = (users) => setOnlineUsers(users);
+
+    // ── message deleted for everyone ──────────────────────────────────────
+    const handleMessageDeletedEveryone = ({ messageId }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          m._id === messageId
+            ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' }
+            : m
+        )
+      );
     };
 
-    const handleMessageDeletedEveryone = ({ messageId }) => {
-      setMessages((prev) => prev.map(m => 
-        m._id === messageId 
-          ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' } 
-          : m
-      ));
-    };
+    // Remove ALL previous listeners before re-registering (prevents stacking)
+    socket.off('receive_message');
+    socket.off('typing');
+    socket.off('stop_typing');
+    socket.off('message_status_update');
+    socket.off('get_online_users');
+    socket.off('message_deleted_everyone');
 
     socket.on('receive_message', receiveMessageHandler);
-    socket.on('new_message_notification', receiveMessageHandler);
     socket.on('typing', handleTyping);
     socket.on('stop_typing', handleStopTyping);
     socket.on('message_status_update', handleStatusUpdate);
     socket.on('get_online_users', handleOnlineUsers);
     socket.on('message_deleted_everyone', handleMessageDeletedEveryone);
 
-    // Request initial online users in case the broadcast was missed
+    // Request current online list in case we missed the broadcast
     socket.emit('request_online_users');
 
-    // Mark existing unread messages as seen when opening the chat
-    if (chatId && selectedUser && user.settings?.readReceipts !== false) {
+    // Always call mark-seen when opening a chat so isFirstSeen=true clears the
+    // unread badge — regardless of the receiver's readReceipts setting.
+    // The server handles the status='seen' update only if readReceipts is ON.
+    if (chatId && selectedUser) {
       axios.put(`${import.meta.env.VITE_BACKEND_URL}/api/messages/mark-seen`, {
         chatId,
         receiverId: currentUserId
       }).then(() => {
-        socket.emit('messages_seen', { chatId, receiverId: selectedUser._id });
+        // Only notify the sender (green tick) if read receipts are enabled
+        if (user.settings?.readReceipts !== false) {
+          socket.emit('messages_seen', {
+            chatId,
+            senderId: selectedUser._id
+          });
+        }
       });
     }
 
     return () => {
       socket.off('receive_message', receiveMessageHandler);
-      socket.off('new_message_notification', receiveMessageHandler);
       socket.off('typing', handleTyping);
       socket.off('stop_typing', handleStopTyping);
       socket.off('message_status_update', handleStatusUpdate);
@@ -198,22 +297,21 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     };
   }, [socket, chatId, selectedUser, currentUserId]);
 
+  // ── AI Suggestions ────────────────────────────────────────────────────────
   const fetchSuggestions = async (draftText) => {
     try {
-      // Gather context (last 3 messages)
       const context = messages.slice(-3).map(m => ({
-        sender: m.senderId === user.id ? "User" : "Other",
+        sender: m.senderId === user.id ? 'User' : 'Other',
         text: m.text
       }));
-
       const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/suggest`, {
         text: draftText,
-        tone: tone,
-        context: context
+        tone,
+        context
       });
       setSuggestions(data.suggestions || []);
     } catch (error) {
-      console.error("Failed to load suggestions", error);
+      console.error('Failed to load suggestions', error);
     } finally {
       setIsSuggesting(false);
     }
@@ -223,32 +321,28 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     const newText = e.target.value;
     setText(newText);
 
-    // AI Suggestion Debounce Logic
     if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
 
     if (newText.trim().length >= 3) {
       if (newText.trim() !== lastFetchedTextRef.current) {
-        setSuggestions([]); // Clear only when the semantic text changes
+        setSuggestions([]);
         setIsSuggesting(true);
         aiDebounceRef.current = setTimeout(() => {
           lastFetchedTextRef.current = newText.trim();
           fetchSuggestions(newText.trim());
-        }, 3000); // Increased to 3 seconds to heavily reduce API calls
+        }, 3000);
       } else {
-        // Just added whitespace (spacebar), keep suggestions visible and don't re-fetch!
         setIsSuggesting(false);
       }
     } else {
-      setSuggestions([]); // Clear if less than 3 chars
+      setSuggestions([]);
       setIsSuggesting(false);
     }
 
-    // Typing Indicator Logic
+    // Typing indicator
     if (socket && chatId && user && selectedUser) {
       socket.emit('typing', { chatId, userId: user.id });
-
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-
       typingTimeoutRef.current = setTimeout(() => {
         socket.emit('stop_typing', { chatId, userId: user.id });
       }, 1000);
@@ -259,16 +353,10 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     if (!text.trim()) return;
     setIsTranslating(true);
     try {
-      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/translate`, {
-        text,
-        targetScript: targetScript
-      });
-      if (data.text) {
-        setText(data.text);
-        setSuggestions([]); // Clear suggestions so it restarts fresh with translated text
-      }
+      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/translate`, { text, targetScript });
+      if (data.text) { setText(data.text); setSuggestions([]); }
     } catch (error) {
-      console.error("Translation failed", error);
+      console.error('Translation failed', error);
     } finally {
       setIsTranslating(false);
     }
@@ -278,16 +366,10 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     if (!text.trim()) return;
     setIsTranslatingLanguage(true);
     try {
-      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/translate-language`, {
-        text,
-        targetLanguage: targetLanguage
-      });
-      if (data.text) {
-        setText(data.text);
-        setSuggestions([]); // Clear suggestions so it restarts fresh with translated text
-      }
+      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/translate-language`, { text, targetLanguage });
+      if (data.text) { setText(data.text); setSuggestions([]); }
     } catch (error) {
-      console.error("Language translation failed", error);
+      console.error('Language translation failed', error);
     } finally {
       setIsTranslatingLanguage(false);
     }
@@ -295,71 +377,59 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setSelectedFile(file);
-    }
+    if (file) setSelectedFile(file);
   };
 
   const toggleRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      return alert('Speech recognition is not supported in this browser.');
-    }
+    if (!SpeechRecognition) return alert('Speech recognition is not supported in this browser.');
 
     if (!recognitionRef.current) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = false;
-
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
-        setText((prev) => prev + (prev.trim() ? ' ' : '') + transcript);
+        setText(prev => prev + (prev.trim() ? ' ' : '') + transcript);
       };
-
       recognition.onend = () => setIsRecording(false);
-      recognition.onerror = (e) => {
-        console.error("Speech Recognition Error", e);
-        setIsRecording(false);
-      };
-
+      recognition.onerror = (e) => { console.error('Speech Recognition Error', e); setIsRecording(false); };
       recognitionRef.current = recognition;
     }
 
-    if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-    } else {
-      recognitionRef.current.start();
-      setIsRecording(true);
-    }
+    if (isRecording) { recognitionRef.current.stop(); setIsRecording(false); }
+    else { recognitionRef.current.start(); setIsRecording(true); }
   };
 
   const handleRefine = async (action) => {
     if (!text.trim()) return;
     setIsRefining(true);
     try {
-      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/refine`, {
-        text,
-        action
-      });
-      if (data.text) {
-        setText(data.text);
-        setSuggestions([]);
-      }
+      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/ai/refine`, { text, action });
+      if (data.text) { setText(data.text); setSuggestions([]); }
     } catch (error) {
-      console.error("Refinement failed", error);
+      console.error('Refinement failed', error);
     } finally {
       setIsRefining(false);
     }
   };
 
+  // ── sendMessage ───────────────────────────────────────────────────────────
+  // Guarded at the very top to prevent any double-send scenario.
   const sendMessage = async (e) => {
     if (e) e.preventDefault();
+
+    // ── Guard 1: Nothing to send ─────────────────────────────────────────
     if ((!text.trim() && !selectedFile) || !chatId) return;
+
+    // ── Guard 2: Already sending (blocks double-submit / StrictMode calls)
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
 
     let mediaUrl = '';
     let mediaType = '';
 
+    // ── Upload file if attached ──────────────────────────────────────────
     if (selectedFile) {
       setIsUploading(true);
       const formData = new FormData();
@@ -371,17 +441,21 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
         });
         mediaUrl = data.mediaUrl;
       } catch (error) {
-        console.error("File upload failed", error);
+        console.error('File upload failed', error);
         alert('Failed to upload file. Please try again.');
         setIsUploading(false);
+        isSendingRef.current = false;
         return;
       }
       setIsUploading(false);
     }
 
-    const tempId = Date.now().toString();
-    const messageData = {
-      _id: tempId,
+    // ── Build tempId for optimistic UI and DB deduplication ─────────────
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // The object sent to the server — NO _id field (server assigns real ObjectId)
+    const messagePayload = {
+      tempId,
       chatId,
       senderId: currentUserId,
       receiverId: selectedUser._id,
@@ -392,8 +466,13 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
       createdAt: new Date().toISOString()
     };
 
-    // Optimistic Update
-    setMessages((prev) => [...prev, messageData]);
+    // ── Optimistic update — show message instantly in sender's UI ────────
+    // Use tempId as the local _id placeholder only for rendering
+    const optimisticMessage = { ...messagePayload, _id: tempId };
+    processedMessagesRef.current.add(tempId);
+    setMessages(prev => [...prev, optimisticMessage]);
+
+    // Clear input immediately for a snappy UX
     setText('');
     setSelectedFile(null);
     setSuggestions([]);
@@ -401,29 +480,51 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
     lastFetchedTextRef.current = '';
 
     try {
-      // Create a copy without the _id for the backend
-      const { _id, ...backendData } = messageData;
-      const { data } = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/messages/send`, backendData);
-      
-      // Replace the optimistic message with the real one from the server
-      setMessages((prev) => prev.map(m => m._id === tempId ? data : m));
-      
-      socket.emit('send_message', data);
+      // ── Persist to DB via HTTP POST (atomic upsert on tempId) ──────────
+      const { data: savedMessage } = await axios.post(
+        `${import.meta.env.VITE_BACKEND_URL}/api/messages/send`,
+        messagePayload
+      );
+
+      // Mark real DB _id as processed so any echoed socket event is ignored
+      if (savedMessage._id) {
+        processedMessagesRef.current.add(savedMessage._id.toString());
+      }
+
+      // Replace optimistic entry with the confirmed DB record (keeps tempId for keying)
+      setMessages(prev =>
+        prev.map(m => m.tempId === tempId ? { ...savedMessage, tempId } : m)
+      );
+
+      // ── Notify receiver via socket ─────────────────────────────────────
+      // The server will relay this ONLY to receiverId's personal room.
+      // We do NOT rely on the chatId room to avoid the message bouncing
+      // back to the sender's own receive_message handler.
+      socket.emit('send_message', { ...savedMessage, tempId });
+
     } catch (error) {
-      console.error("Error saving message", error);
+      console.error('Error saving message', error);
+      // Roll back the optimistic message on failure
+      setMessages(prev => prev.filter(m => m.tempId !== tempId));
+      processedMessagesRef.current.delete(tempId);
+    } finally {
+      isSendingRef.current = false;
     }
   };
 
+  // ── Delete message ────────────────────────────────────────────────────────
   const handleDeleteMessage = async (messageId, type) => {
     try {
       if (type === 'for_me') {
-        setMessages((prev) => prev.filter(m => m._id !== messageId));
+        setMessages(prev => prev.filter(m => m._id !== messageId));
       } else if (type === 'for_everyone') {
-        setMessages((prev) => prev.map(m => 
-          m._id === messageId 
-            ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' } 
-            : m
-        ));
+        setMessages(prev =>
+          prev.map(m =>
+            m._id === messageId
+              ? { ...m, isDeletedForEveryone: true, text: 'This message was deleted', mediaUrl: '', mediaType: '' }
+              : m
+          )
+        );
       }
 
       await axios.delete(`${import.meta.env.VITE_BACKEND_URL}/api/messages/${messageId}`, {
@@ -434,7 +535,7 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
         socket.emit('delete_message_everyone', { chatId, messageId });
       }
     } catch (error) {
-      console.error("Error deleting message", error);
+      console.error('Error deleting message', error);
     }
   };
 
@@ -445,11 +546,11 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
 
   return (
     <div className="flex h-screen bg-transparent">
-      <Sidebar 
-        setAuth={setAuth} 
-        user={user} 
-        onSelectUser={setSelectedUser} 
-        unreadCounts={unreadCounts} 
+      <Sidebar
+        setAuth={setAuth}
+        user={user}
+        onSelectUser={setSelectedUser}
+        unreadCounts={unreadCounts}
         onlineUsers={onlineUsers}
         onSettings={() => setIsSettingsModalOpen(true)}
       />
@@ -463,6 +564,11 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
             onlineUsers={onlineUsers}
             isRightSidebarOpen={isRightSidebarOpen}
             setIsRightSidebarOpen={setIsRightSidebarOpen}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            searchResults={searchResults}
+            searchIndex={searchIndex}
+            setSearchIndex={setSearchIndex}
           />
 
           <ChatFeed
@@ -472,6 +578,12 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
             setExpandedMedia={setExpandedMedia}
             messagesEndRef={messagesEndRef}
             handleDeleteMessage={handleDeleteMessage}
+            firstUnseenId={firstUnseenId}
+            firstUnseenRef={firstUnseenRef}
+            searchQuery={searchQuery}
+            searchResults={searchResults}
+            searchIndex={searchIndex}
+            onSearchResults={setSearchResults}
           />
 
           <AISuggestions

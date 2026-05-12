@@ -69,39 +69,29 @@ io.on('connection', (socket) => {
     console.log(`User joined chat room: ${chatId}`);
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
   // Handle sending a message
-  socket.on('send_message', async (data) => {
-    const { chatId, senderId, text, receiverId, mediaUrl, mediaType } = data;
-    
-    try {
-      // PERSIST TO DATABASE
-      const newMessage = new Message({
-        chatId,
-        senderId,
-        receiverId,
-        text,
-        mediaUrl,
-        mediaType,
-        status: 'sent'
-      });
-      const savedMessage = await newMessage.save();
-      
-      // Add the saved ID to the data we broadcast
-      const messageWithId = { ...data, _id: savedMessage._id, createdAt: savedMessage.createdAt };
+  //
+  // Architecture: The CLIENT sends the optimistic message via HTTP POST to
+  // /api/messages/send (which handles DB persistence with tempId deduplication).
+  // AFTER the HTTP call succeeds, the client emits 'send_message' here with
+  // the confirmed DB data so we can relay it to the receiver.
+  //
+  // We emit ONLY to the receiver's personal userId room.
+  // We do NOT emit back to the chatId room because the sender joined that room
+  // via join_chat, which would cause the sender's own receive_message handler
+  // to fire and display a duplicate.
+  // ─────────────────────────────────────────────────────────────────────────
+  socket.on('send_message', (data) => {
+    const { receiverId } = data;
 
-      // Broadcast message to everyone in the chat room
-      socket.to(chatId).emit('receive_message', messageWithId);
-      
-      // Also notify the receiver directly if they are connected
-      if (receiverId) {
-         socket.to(receiverId).emit('new_message_notification', messageWithId);
-      }
-    } catch (error) {
-      console.error("Error saving message via socket:", error);
+    // Relay the confirmed message only to the receiver's personal room
+    if (receiverId) {
+      socket.to(receiverId).emit('receive_message', data);
     }
   });
 
-  // Typing indicators
+  // Typing indicators — emit to the chatId room (excluding sender)
   socket.on('typing', ({ chatId, userId }) => {
     socket.to(chatId).emit('typing', { userId });
   });
@@ -110,13 +100,30 @@ io.on('connection', (socket) => {
     socket.to(chatId).emit('stop_typing', { userId });
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
   // Message status updates
-  socket.on('messages_delivered', ({ chatId, receiverId }) => {
-    socket.to(chatId).emit('message_status_update', { chatId, status: 'delivered' });
+  //
+  // When the receiver marks messages as delivered/seen, notify the sender.
+  // We emit to the sender's personal userId room instead of the chatId room
+  // to keep status updates targeted and avoid chatId room collisions.
+  // ─────────────────────────────────────────────────────────────────────────
+  socket.on('messages_delivered', ({ chatId, senderId }) => {
+    // Notify the sender (by their userId room) that their messages were delivered
+    if (senderId) {
+      socket.to(senderId).emit('message_status_update', { chatId, status: 'delivered' });
+    } else {
+      // Fallback: broadcast to chatId room (excludes current socket)
+      socket.to(chatId).emit('message_status_update', { chatId, status: 'delivered' });
+    }
   });
 
-  socket.on('messages_seen', ({ chatId, receiverId }) => {
-    socket.to(chatId).emit('message_status_update', { chatId, status: 'seen' });
+  socket.on('messages_seen', ({ chatId, senderId }) => {
+    // Notify the sender (by their userId room) that their messages were seen
+    if (senderId) {
+      socket.to(senderId).emit('message_status_update', { chatId, status: 'seen' });
+    } else {
+      socket.to(chatId).emit('message_status_update', { chatId, status: 'seen' });
+    }
   });
 
   socket.on('delete_message_everyone', ({ chatId, messageId }) => {
