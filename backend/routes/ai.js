@@ -15,10 +15,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
 // Helper function to sequentially try models if one hits a quota limit or region restriction
 async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
-  // STRICT REQUIREMENT: Only use stable, globally-supported models.
   const models = [
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-2.5-flash',
+    'gemini-3.1-flash-lite'
   ];
   let lastError;
   
