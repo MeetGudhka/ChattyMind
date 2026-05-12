@@ -10,8 +10,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 // Helper function to sequentially try models if one hits a quota limit
 async function generateWithFallback(prompt, temperature = 0.7, isJson = false) {
   const models = [
-    'gemini-3.1-flash-lite-preview',
-    'deep-research-preview-04-2026'
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite'
   ];
   let lastError;
   
