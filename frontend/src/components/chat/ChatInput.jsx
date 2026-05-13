@@ -1,5 +1,51 @@
 import { X, FileText, Loader2, Sparkles, Globe, Image as ImageIcon, Mic, Send, ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+
+const CustomSelect = ({ value, options, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative flex items-center bg-white/[0.05] md:bg-transparent rounded-full px-1 py-0.5 border border-white/10 md:border-none" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 md:gap-1 text-[13px] md:text-[11px] bg-transparent outline-none cursor-pointer text-white/90 font-bold px-2 py-0.5 min-w-[70px] justify-between"
+      >
+        <span className="truncate">{options.find(o => o.value === value)?.label || value}</span>
+        <ChevronDown className={`w-3.5 h-3.5 md:w-3 h-3 text-white/50 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute bottom-[calc(100%+10px)] left-0 min-w-[140px] bg-[#1a1a2e]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl z-[100] p-1.5 flex flex-col gap-1 animate-fadeInUp">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2 rounded-xl text-[14px] md:text-[12px] font-bold transition-all ${value === opt.value ? 'bg-primary/20 text-primary' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function ChatInput({
   user,
@@ -74,7 +120,7 @@ export default function ChatInput({
           </button>
 
           {/* AI Tools Row — always visible on md+, toggle on mobile */}
-          <div className={`${showAITools ? 'flex' : 'hidden'} md:flex items-center w-full gap-2 md:gap-3 overflow-x-auto pb-1 shrink-0 no-scrollbar animate-fadeInUp`}>
+          <div className={`${showAITools ? 'flex' : 'hidden'} md:flex flex-wrap items-center w-full gap-2 md:gap-3 pb-1 shrink-0 animate-fadeInUp`}>
             {/* Refine buttons */}
             <div className="flex items-center gap-1.5 shrink-0 bg-white/[0.04] backdrop-blur-xl px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-white/10 shadow-premium">
               {['Shorter', 'Polite', 'Clarity'].map((action) => (
@@ -94,52 +140,50 @@ export default function ChatInput({
             <div className="h-4 w-px bg-white/15 shrink-0" />
 
             {/* Script & Language */}
-            <div className="flex items-center gap-2 md:gap-3 shrink-0">
-              <div className="flex items-center gap-2 bg-white/[0.06] md:bg-white/[0.04] pl-3 pr-1.5 py-1.5 md:py-1.5 rounded-full border border-white/15 md:border-white/10 hover:border-primary/50 transition-all group shadow-sm md:shadow-none">
-                <Globe className="w-4 h-4 md:w-3.5 md:h-3.5 text-primary group-hover:rotate-12 transition-transform shrink-0" />
-                <div className="relative flex items-center bg-white/[0.05] md:bg-transparent rounded-full px-2 md:px-0 py-0.5 md:py-0 border border-white/10 md:border-none">
-                  <select
+            <div className="flex flex-wrap md:flex-nowrap items-center w-full md:w-auto gap-2 md:gap-3 shrink-0 mt-1 md:mt-0">
+              <div className="flex flex-1 md:flex-none justify-between items-center gap-2 bg-white/[0.06] md:bg-white/[0.04] pl-3 pr-1.5 py-1.5 rounded-2xl md:rounded-full border border-white/15 md:border-white/10 hover:border-primary/50 transition-all group shadow-sm md:shadow-none">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 md:w-3.5 md:h-3.5 text-primary group-hover:rotate-12 transition-transform shrink-0" />
+                  <CustomSelect
                     value={targetScript}
-                    onChange={(e) => setTargetScript(e.target.value)}
-                    className="text-[13px] md:text-[11px] bg-transparent outline-none cursor-pointer text-white/90 font-bold appearance-none pr-5 min-w-[70px] max-w-[110px]"
-                  >
-                    <option value="English Letters" className="bg-[#0f172a] text-white">English</option>
-                    <option value="Hindi Letters" className="bg-[#0f172a] text-white">Hindi</option>
-                    <option value="Marathi Letters" className="bg-[#0f172a] text-white">Marathi</option>
-                    <option value="Gujarati Letters" className="bg-[#0f172a] text-white">Gujarati</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 md:w-3 md:h-3 text-white/50 absolute right-1.5 md:right-0 pointer-events-none" />
+                    onChange={setTargetScript}
+                    options={[
+                      { value: 'English Letters', label: 'English' },
+                      { value: 'Hindi Letters', label: 'Hindi' },
+                      { value: 'Marathi Letters', label: 'Marathi' },
+                      { value: 'Gujarati Letters', label: 'Gujarati' }
+                    ]}
+                  />
                 </div>
                 <button
                   onClick={handleTranslate}
                   type="button"
                   disabled={!text.trim() || isTranslating}
-                  className="text-[11px] md:text-[10px] bg-primary/20 text-primary hover:bg-primary hover:text-white font-black px-4 py-1.5 md:px-3 md:py-1 rounded-full transition-all disabled:opacity-30 active:scale-95 uppercase tracking-wider"
+                  className="text-[11px] md:text-[10px] bg-primary/20 text-primary hover:bg-primary hover:text-white font-black px-4 py-1.5 md:px-3 md:py-1 rounded-xl md:rounded-full transition-all disabled:opacity-30 active:scale-95 uppercase tracking-wider shrink-0"
                 >
                   {isTranslating ? '...' : 'Type'}
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 bg-white/[0.06] md:bg-white/[0.04] pl-3 pr-1.5 py-1.5 md:py-1.5 rounded-full border border-white/15 md:border-white/10 hover:border-secondary/50 transition-all group shadow-sm md:shadow-none">
-                <Globe className="w-4 h-4 md:w-3.5 md:h-3.5 text-secondary group-hover:rotate-12 transition-transform shrink-0" />
-                <div className="relative flex items-center bg-white/[0.05] md:bg-transparent rounded-full px-2 md:px-0 py-0.5 md:py-0 border border-white/10 md:border-none">
-                  <select
+              <div className="flex flex-1 md:flex-none justify-between items-center gap-2 bg-white/[0.06] md:bg-white/[0.04] pl-3 pr-1.5 py-1.5 rounded-2xl md:rounded-full border border-white/15 md:border-white/10 hover:border-secondary/50 transition-all group shadow-sm md:shadow-none">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 md:w-3.5 md:h-3.5 text-secondary group-hover:rotate-12 transition-transform shrink-0" />
+                  <CustomSelect
                     value={targetLanguage}
-                    onChange={(e) => setTargetLanguage(e.target.value)}
-                    className="text-[13px] md:text-[11px] bg-transparent outline-none cursor-pointer text-white/90 font-bold appearance-none pr-5 min-w-[70px] max-w-[90px]"
-                  >
-                    <option value="English" className="bg-[#0f172a] text-white">English</option>
-                    <option value="Hindi" className="bg-[#0f172a] text-white">Hindi</option>
-                    <option value="Marathi" className="bg-[#0f172a] text-white">Marathi</option>
-                    <option value="Gujarati" className="bg-[#0f172a] text-white">Gujarati</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 md:w-3 md:h-3 text-white/50 absolute right-1.5 md:right-0 pointer-events-none" />
+                    onChange={setTargetLanguage}
+                    options={[
+                      { value: 'English', label: 'English' },
+                      { value: 'Hindi', label: 'Hindi' },
+                      { value: 'Marathi', label: 'Marathi' },
+                      { value: 'Gujarati', label: 'Gujarati' }
+                    ]}
+                  />
                 </div>
                 <button
                   onClick={handleTranslateLanguage}
                   type="button"
                   disabled={!text.trim() || isTranslatingLanguage}
-                  className="text-[11px] md:text-[10px] bg-secondary/20 text-secondary hover:bg-secondary hover:text-white font-black px-4 py-1.5 md:px-3 md:py-1 rounded-full transition-all disabled:opacity-30 active:scale-95 uppercase tracking-wider"
+                  className="text-[11px] md:text-[10px] bg-secondary/20 text-secondary hover:bg-secondary hover:text-white font-black px-4 py-1.5 md:px-3 md:py-1 rounded-xl md:rounded-full transition-all disabled:opacity-30 active:scale-95 uppercase tracking-wider shrink-0"
                 >
                   {isTranslatingLanguage ? '...' : 'Translate'}
                 </button>
