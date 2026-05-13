@@ -12,8 +12,14 @@
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply antialiased text-[#f0f4ff] bg-[#0a0a1e] font-sans overflow-x-hidden;
+    /* Safe area support for notched phones */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   ::selection {
     background: rgba(0, 207, 255, 0.3);
@@ -33,7 +39,7 @@ body::before {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  filter: blur(12px); /* Increased blur for more depth */
+  filter: blur(12px);
   transform: scale(1.1);
   z-index: -2;
   pointer-events: none;
@@ -47,15 +53,15 @@ body::after {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.7) 0%, rgba(10, 10, 30, 0.9) 100%); /* Smoother gradient */
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.65) 0%, rgba(10, 10, 30, 0.88) 100%);
   z-index: -1;
   pointer-events: none;
 }
 
 /* Custom modern scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -63,22 +69,31 @@ body::after {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 20px;
   transition: all 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.30);
+}
+
+/* Hide scrollbar but keep functionality */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Glassmorphism Utilities */
 .glass-panel {
-  @apply bg-white/[0.03] backdrop-blur-2xl border border-white/10 shadow-glass;
+  @apply bg-white/[0.04] backdrop-blur-2xl border border-white/[0.12] shadow-glass;
 }
 
 .glass-card {
-  @apply bg-white/[0.05] backdrop-blur-xl border border-white/10 hover:border-white/20 transition-all duration-300;
+  @apply bg-white/[0.06] backdrop-blur-xl border border-white/[0.12] hover:border-white/25 transition-all duration-300;
 }
 
 .text-glow {
@@ -94,3 +109,28 @@ body::after {
   animation: pulse-glow 2s infinite;
 }
 
+/* Safe area padding utilities */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Mobile drawer overlay */
+.drawer-overlay {
+  @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-40;
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Touch targets - minimum 44px for mobile */
+@media (max-width: 768px) {
+  button, [role="button"] {
+    min-height: 36px;
+  }
+}

@@ -43,13 +43,29 @@ export default {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
         slideDown: {
           '0%': { opacity: '0', transform: 'translateY(-10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         slideInLeft: {
-          '0%': { opacity: '0', transform: 'translateX(-10px)' },
+          '0%': { opacity: '0', transform: 'translateX(-20px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        slideInRight: {
+          '0%': { opacity: '0', transform: 'translateX(20px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        slideInUp: {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        scaleIn: {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
         },
         float: {
           '0%, 100%': { transform: 'translateY(0)' },
@@ -61,15 +77,28 @@ export default {
         },
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
-        }
+        },
+        drawerIn: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        drawerOut: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-100%)' },
+        },
       },
       animation: {
         fadeInUp: 'fadeInUp 0.4s ease-out forwards',
+        fadeIn: 'fadeIn 0.3s ease-out forwards',
         slideDown: 'slideDown 0.4s ease-out forwards',
         slideInLeft: 'slideInLeft 0.4s ease-out forwards',
+        slideInRight: 'slideInRight 0.4s ease-out forwards',
+        slideInUp: 'slideInUp 0.4s ease-out forwards',
+        scaleIn: 'scaleIn 0.3s ease-out forwards',
         float: 'float 3s ease-in-out infinite',
         bounceDelay: 'bounceDelay 1.4s infinite ease-in-out both',
         shimmer: 'shimmer 2s infinite',
+        drawerIn: 'drawerIn 0.35s cubic-bezier(0.32,0.72,0,1) forwards',
       }
     },
   },

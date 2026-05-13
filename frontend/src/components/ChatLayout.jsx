@@ -36,6 +36,7 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   // ─── In-chat message search ──────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -545,7 +546,7 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
   };
 
   return (
-    <div className="flex h-screen bg-transparent">
+    <div className="flex h-screen bg-transparent overflow-hidden">
       <Sidebar
         setAuth={setAuth}
         user={user}
@@ -553,6 +554,8 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
         unreadCounts={unreadCounts}
         onlineUsers={onlineUsers}
         onSettings={() => setIsSettingsModalOpen(true)}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       <div className="flex-1 flex relative overflow-hidden">
@@ -569,6 +572,7 @@ export default function ChatLayout({ socket, user: initialUser, setAuth }) {
             searchResults={searchResults}
             searchIndex={searchIndex}
             setSearchIndex={setSearchIndex}
+            onMenuOpen={() => setIsSidebarOpen(true)}
           />
 
           <ChatFeed
