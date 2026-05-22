@@ -13,16 +13,18 @@ import Message from './models/Message.js';
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = ['https://chattymind-frontend.vercel.app', 'http://localhost:5173'];
+
 const io = new Server(server, {
   cors: {
-    origin: 'https://chattymind-frontend.vercel.app',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true
   }
 });
 
 app.use(cors({
-  origin: 'https://chattymind-frontend.vercel.app',
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json());
